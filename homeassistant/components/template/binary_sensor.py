@@ -5,6 +5,7 @@ import voluptuous as vol
 
 from homeassistant.components.binary_sensor import (
     DEVICE_CLASSES_SCHEMA,
+    DOMAIN as BINARY_SENSOR_DOMAIN,
     ENTITY_ID_FORMAT,
     PLATFORM_SCHEMA,
     BinarySensorEntity,
@@ -40,6 +41,7 @@ from .const import (
     CONF_PICTURE,
 )
 from .template_entity import TemplateEntity
+from .trigger_entity import TriggerEntity
 
 CONF_DELAY_ON = "delay_on"
 CONF_DELAY_OFF = "delay_off"
@@ -168,8 +170,23 @@ def _async_create_template_tracking_entities(async_add_entities, hass, definitio
 
 async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
     """Set up the template binary sensors."""
+    if discovery_info is None:
+        _async_create_template_tracking_entities(
+            async_add_entities,
+            hass,
+            rewrite_legacy_to_modern_conf(config[CONF_SENSORS]),
+        )
+        return
+
+    if "coordinator" in discovery_info:
+        async_add_entities(
+            TriggerBinarySensorEntity(hass, discovery_info["coordinator"], config)
+            for config in discovery_info["entities"]
+        )
+        return
+
     _async_create_template_tracking_entities(
-        async_add_entities, hass, rewrite_legacy_to_modern_conf(config[CONF_SENSORS])
+        async_add_entities, hass, discovery_info["entities"]
     )
 
 
@@ -306,3 +323,16 @@ class BinarySensorTemplate(TemplateEntity, BinarySensorEntity):
     def device_class(self):
         """Return the sensor class of the binary sensor."""
         return self._device_class
+
+
+class TriggerBinarySensorEntity(TriggerEntity, BinarySensorEntity):
+    """Sensor entity based on trigger data."""
+
+    domain = BINARY_SENSOR_DOMAIN
+    extra_template_keys = (CONF_STATE,)
+
+    @property
+    def is_on(self) -> bool:
+        """Return state of the sensor."""
+        rendered = self._rendered.get(CONF_STATE)
+        return template.result_as_boolean(rendered)
